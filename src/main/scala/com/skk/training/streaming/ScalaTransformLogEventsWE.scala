@@ -1,4 +1,5 @@
 package com.skk.training.streaming
+
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming.StreamingContext
 import org.apache.spark.SparkConf

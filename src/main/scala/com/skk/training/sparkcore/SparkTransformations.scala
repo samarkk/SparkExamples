@@ -324,7 +324,9 @@ object SparkTransformations extends App {
   frd.aggregateByKey(0)(_ + _, _ + _).collect.foreach(println)
 
   
-val cmplxRDD = sc.parallelize(List(("sachin", ("india", 200, 34)), ("sachin", ("wi", 24, 10)), ("rahul", ("india", 195, 29)), ("rahul", ("wi", 23, 11)), ("sachin", ("india", 215, 45)), ("rahul", ("india", 188, 17))))
+val cmplxRDD = sc.parallelize(List(("sachin", ("india", 200, 34)), ("sachin", ("wi", 24, 10)), 
+                                   ("rahul", ("india", 195, 29)), ("rahul", ("wi", 23, 11)),
+                                   ("sachin", ("india", 215, 45)), ("rahul", ("india", 188, 17))))
 
 val cmpn = cmplxRDD.map{ case(player, (country, matches, centuries)) => ((player, country), (matches, centuries))}
 // this is as name implies merging values , later on in combineByKey we do (x: (Int, Int)) => (x, 1)
@@ -340,6 +342,10 @@ def mrgcmb(x: ((Int, Int), Int), y: ((Int, Int), Int)) = ((x._1._1 + y._1._1, x.
 cmpn.combineByKey((x: (Int, Int)) => (x, 1), mrgval, mrgcmb).collect.foreach(println)
 
 // simpler way of doing stuff
-cmpn.combineByKey(x => x, (x: (Int, Int), y: (Int, Int)) => (x._1 + y._1, x._2 + y._2), (x: (Int, Int), y: (Int, Int)) => (x._1 + y._1, x._2 + y._2)).collect.foreach(println)
+cmpn.combineByKey(x => x, 
+                  (x: (Int, Int), y: (Int, Int)) => (x._1 + y._1, x._2 + y._2), 
+                  (x: (Int, Int), y: (Int, Int)) => (x._1 + y._1, x._2 + y._2)).collect.foreach(println)
 
-cmpn.map(x => (x._1, (x._2._1, x._2._2, 1))).combineByKey(x => x, (x: (Int, Int, Int), y: (Int, Int, Int)) => (x._1 + y._1, x._2 + y._2, x._3 + y._3), (x: (Int, Int, Int), y: (Int, Int, Int)) => (x._1 + y._1, x._2 + y._2, x._3 + y._3)).collect.foreach(println)
+cmpn.map(x => (x._1, (x._2._1, x._2._2, 1))).combineByKey(x => x,
+               (x: (Int, Int, Int), y: (Int, Int, Int)) => (x._1 + y._1, x._2 + y._2, x._3 + y._3), 
+               (x: (Int, Int, Int), y: (Int, Int, Int)) => (x._1 + y._1, x._2 + y._2, x._3 + y._3)).collect.foreach(println)

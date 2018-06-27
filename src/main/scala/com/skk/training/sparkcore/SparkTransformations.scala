@@ -323,4 +323,23 @@ object SparkTransformations extends App {
   println("Aggregate by key example")
   frd.aggregateByKey(0)(_ + _, _ + _).collect.foreach(println)
 
-}
+  
+val cmplxRDD = sc.parallelize(List(("sachin", ("india", 200, 34)), ("sachin", ("wi", 24, 10)), ("rahul", ("india", 195, 29)), ("rahul", ("wi", 23, 11)), ("sachin", ("india", 215, 45)), ("rahul", ("india", 188, 17))))
+
+val cmpn = cmplxRDD.map{ case(player, (country, matches, centuries)) => ((player, country), (matches, centuries))}
+// this is as name implies merging values , later on in combineByKey we do (x: (Int, Int)) => (x, 1)
+// so the combiner is ((Int, Int), Int)
+// and we have to for a partition merge the values beginning with the first element for which we create the accumulator
+// and all of this is going to happen for each key - that is for each key within each partition
+// so first time it sees ("sachin", "india") it is going to create ((200, 340), 1) 
+// and for the next value mrgval will come into plau and we should get ((200 + 215, 34 + 45), 1 + 1)
+def mrgval(x: ((Int, Int), Int), y: (Int,Int)) = ((x._1._1 +  y._1, x._1._2 + y._2), x._2 + 1)
+// after the combiners have marged the values it is time to merge them
+def mrgcmb(x: ((Int, Int), Int), y: ((Int, Int), Int)) = ((x._1._1 + y._1._1, x._1._2 + y._1._2), x._2 + y._2)
+
+cmpn.combineByKey((x: (Int, Int)) => (x, 1), mrgval, mrgcmb).collect.foreach(println)
+
+// simpler way of doing stuff
+cmpn.combineByKey(x => x, (x: (Int, Int), y: (Int, Int)) => (x._1 + y._1, x._2 + y._2), (x: (Int, Int), y: (Int, Int)) => (x._1 + y._1, x._2 + y._2)).collect.foreach(println)
+
+cmpn.map(x => (x._1, (x._2._1, x._2._2, 1))).combineByKey(x => x, (x: (Int, Int, Int), y: (Int, Int, Int)) => (x._1 + y._1, x._2 + y._2, x._3 + y._3), (x: (Int, Int, Int), y: (Int, Int, Int)) => (x._1 + y._1, x._2 + y._2, x._3 + y._3)).collect.foreach(println)

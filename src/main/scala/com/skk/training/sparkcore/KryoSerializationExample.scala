@@ -1,10 +1,14 @@
-package com.skk.training
+package com.skk.training.sparkcore
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.SparkConf
+import org.apache.spark.{ SparkConf, SparkContext }
 import org.apache.spark.serializer.KryoSerializer
-import scala.collection.mutable.ArrayBuffer
-import com.twitter.chill.KryoSerializer
 import org.apache.spark.storage.StorageLevel
+import scala.reflect.ClassTag
+import org.apache.spark.rdd.RDD
+import java.io.ByteArrayOutputStream
+import org.apache.hadoop.io.BytesWritable
+import org.apache.hadoop.io.NullWritable
+import org.apache.spark.rdd.RDD.rddToSequenceFileRDDFunctions
 
 class Stock(val name: String, val exchange: String, val series: String,
             val price: Double, val open: Double, val close: Double) extends Serializable {
@@ -14,7 +18,7 @@ class Stock(val name: String, val exchange: String, val series: String,
 
 object KryoSerializationExample extends App {
   val sparkConf = new SparkConf
-  val useKryo = false
+  val useKryo = true
   if (useKryo) {
     sparkConf.setMaster("local[*]").set(
       "spark.serializer",
@@ -23,9 +27,11 @@ object KryoSerializationExample extends App {
     //  val kryo = new KryoSerializer(sparkConf)
 
     sparkConf.registerKryoClasses(Array(
-      classOf[com.skk.training.Stock],
-      classOf[Array[com.skk.training.Stock]],
-      classOf[scala.collection.mutable.WrappedArray.ofRef[_]]))
+      classOf[com.skk.training.sparkcore.Stock],
+      classOf[Array[com.skk.training.sparkcore.Stock]],
+      classOf[scala.collection.mutable.WrappedArray.ofRef[_]],
+      classOf[org.apache.spark.internal.io.FileCommitProtocol$TaskCommitMessage],
+      classOf[scala.collection.immutable.Set$EmptySet$]))
   } else {
     sparkConf.setMaster("local[*]")
   }
@@ -42,8 +48,49 @@ object KryoSerializationExample extends App {
   val stocksRDD = spark.sparkContext.parallelize(replicatedListOfStocks)
   println("No of partitions of stocksRDD: " + stocksRDD.getNumPartitions)
   stocksRDD.persist(StorageLevel.MEMORY_ONLY_SER)
-  println(stocksRDD.map(_.price).reduce(_ + _))
+  println("stocks price reduced: " + stocksRDD.map(_.price).reduce(_ + _))
   println("executor memory status: " + spark.sparkContext.getExecutorMemoryStatus)
   println("memory used for storage: " + spark.sparkContext.getExecutorStorageStatus(0).memUsed)
 
+  def saveAsObjectFile[T: ClassTag](rdd: RDD[T], path: String): Unit = {
+    val kryoSerializer = new KryoSerializer(rdd.context.getConf)
+    rdd.mapPartitions(iter => iter.grouped(2).map(_.toArray)).map(outputArray => {
+      val kryo = kryoSerializer.newKryo()
+
+      val bao = new ByteArrayOutputStream
+      val output = kryoSerializer.newKryoOutput()
+      output.setOutputStream(bao)
+      kryo.writeClassAndObject(output, outputArray)
+      output.close()
+
+      val byteWritable = new BytesWritable(bao.toByteArray())
+      (NullWritable.get, byteWritable)
+    }).saveAsSequenceFile(path)
+  }
+
+  def readKryoObjectFile[T](sc: SparkContext, path: String,
+                            minPartitions: Int)(implicit ct: ClassTag[T]): RDD[T] = {
+    val kryoSerializer = new KryoSerializer(sc.getConf)
+    sc.sequenceFile(path, classOf[NullWritable], classOf[BytesWritable], minPartitions)
+      .flatMap(x => {
+        val kryo = kryoSerializer.newKryo()
+        val input = new com.esotericsoftware.kryo.io.Input
+        input.setBuffer(x._2.getBytes)
+        val data = kryo.readClassAndObject(input)
+        val dataObject = data.asInstanceOf[Array[T]]
+        dataObject
+      })
+  }
+
+  def deleteRecursively(file: java.io.File): Unit = {
+    if (file.isDirectory())
+      file.listFiles.foreach(deleteRecursively)
+    if (file.exists() && !file.delete())
+      throw new Exception(s"unable to delete ${file.getAbsolutePath}")
+  }
+  deleteRecursively(new java.io.File("D:\\temp\\stockskryo"))
+  saveAsObjectFile(stocksRDD, "D:\\temp\\stockskryo")
+  val kryoStocksRDD = readKryoObjectFile[Stock](spark.sparkContext, "D:\\temp\\stockskryo", 2)
+  println("no of elements read from kryo object file: " + kryoStocksRDD.count())
+  kryoStocksRDD.collect().foreach(println)
 }
